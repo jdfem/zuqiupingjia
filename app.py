@@ -158,8 +158,12 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
             angularaxis=dict(
                 tickmode='array', tickvals=angles, ticktext=tick_texts,       
                 tickfont=dict(size=11, family="SimHei"), 
-                gridcolor="rgba(0,0,0,0)", linecolor="rgba(0,0,0,0)", 
-                rotation=90, direction="clockwise"
+                gridcolor="rgba(0,0,0,0)", 
+                linecolor="rgba(0,0,0,0)", 
+                ticks="",        # 【核心修改】隐藏外部刻度短线
+                ticklen=0,       # 【核心修改】刻度线长度设为0
+                rotation=90, 
+                direction="clockwise"
             ),
             bgcolor="white"
         ),
