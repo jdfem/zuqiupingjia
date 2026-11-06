@@ -168,7 +168,7 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
             bgcolor="white"
         ),
         title=dict(
-            text=f"<b>{player_name}</b><br>绝对能力总和: {total_score:.1f}",
+            text=f"<b>{player_name}</b><br>总分: {total_score:.1f}",
             font=dict(size=22, family="SimHei", color="#333333"),
             x=0.02, y=0.98, xanchor="left", yanchor="top"
         ),
