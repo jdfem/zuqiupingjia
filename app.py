@@ -1,13 +1,12 @@
 # ==========================================
-# 足球球员评分看板 (Plotly 历史记录管理版)
+# 足球球员评分看板 (Plotly+Supabase云端版)
 # ==========================================
 import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import json
-import os
 from datetime import datetime
+from supabase import create_client, Client
 
 # ==========================================
 # 1. 核心逻辑：评级函数
@@ -38,7 +37,31 @@ def score_to_rank(score):
     else: return "H"
 
 # ==========================================
-# 2. 默认维度与数据持久化
+# 2. Supabase 初始化与匿名登录
+# ==========================================
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY")
+    if not url or not key:
+        st.error("⚠️ 未找到 Supabase 密钥，请检查 Streamlit Secrets 配置！")
+        st.stop()
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+# 检查并执行匿名登录
+if "sb_session" not in st.session_state:
+    try:
+        # 尝试获取当前 session，如果没有，则进行匿名登录
+        res = supabase.auth.sign_in_anonymously()
+        st.session_state.sb_session = res.session
+    except Exception as e:
+        st.error(f"匿名登录失败，请在 Supabase 后台开启 Anonymous Sign-ins。报错信息：{e}")
+        st.stop()
+
+# ==========================================
+# 3. 默认维度
 # ==========================================
 DEFAULT_ABILITIES = [
     "边路传中", "直塞", "弧线传球", "短传衔接", "长传转移", "外脚背",
@@ -53,19 +76,6 @@ DEFAULT_ABILITIES = [
     "赛场情绪/体育精神", "大场面属性"
 ]
 
-HISTORY_FILE = "player_history.json"
-
-def load_history():
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            try: return json.load(f)
-            except: return []
-    return []
-
-def save_history(history):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=4)
-
 # 初始化状态
 if 'ability_text' not in st.session_state:
     st.session_state.ability_text = "\n".join(DEFAULT_ABILITIES)
@@ -78,10 +88,61 @@ if "edge_color_pick" not in st.session_state:
 if "fill_color_pick" not in st.session_state:
     st.session_state.fill_color_pick = "#87CEEB"
 if "history_data" not in st.session_state:
-    st.session_state.history_data = load_history()
+    st.session_state.history_data = []
 
 # ==========================================
-# 3. 绘图函数
+# 4. 数据库交互函数
+# ==========================================
+def load_history_from_db():
+    try:
+        response = supabase.table("players").select("*").execute()
+        history = []
+        for row in response.data:
+            record = row["data"]
+            record["id"] = row["id"] 
+            record["timestamp"] = row["created_at"]
+            history.append(record)
+        return history
+    except Exception as e:
+        st.error(f"读取历史记录失败：{e}")
+        return []
+
+def save_history_to_db(player_data):
+    try:
+        # 覆盖同名球员：先删旧的，再插新的
+        supabase.table("players").delete().eq("player_name", player_data["player_name"]).execute()
+        supabase.table("players").insert({
+            "player_name": player_data["player_name"],
+            "data": player_data
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"保存失败：{e}")
+        return False
+
+def delete_history_from_db(record_id):
+    try:
+        supabase.table("players").delete().eq("id", record_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"删除失败：{e}")
+        return False
+
+def clear_all_history_from_db():
+    try:
+        supabase.table("players").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+        return True
+    except Exception as e:
+        st.error(f"清空失败：{e}")
+        return False
+
+# 页面初次加载时，从数据库拉取最新历史
+if "db_loaded" not in st.session_state:
+    st.session_state.history_data = load_history_from_db()
+    st.session_state.db_loaded = True
+
+# ==========================================
+# 5. 绘图与渲染
 # ==========================================
 def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_color="#87CEEB", edge_color="#000000"):
     total_score = sum(score_list) 
@@ -160,8 +221,8 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
                 tickfont=dict(size=11, family="SimHei"), 
                 gridcolor="rgba(0,0,0,0)", 
                 linecolor="rgba(0,0,0,0)", 
-                ticks="",        # 【核心修改】隐藏外部刻度短线
-                ticklen=0,       # 【核心修改】刻度线长度设为0
+                ticks="",        
+                ticklen=0,       
                 rotation=90, 
                 direction="clockwise"
             ),
@@ -177,7 +238,6 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
     )
     return fig
 
-# 统一的渲染结果函数
 def render_result(data):
     fig = player_radar_plotly(
         data["player_name"], data["abilities"], data["rank_list"], data["score_list"], 
@@ -202,7 +262,6 @@ def render_result(data):
     </div>
     """, unsafe_allow_html=True)
     
-    # 兼容处理：历史记录读出来是 list，需要转成 DataFrame
     df_to_show = data['df_display']
     if isinstance(df_to_show, list):
         df_to_show = pd.DataFrame(df_to_show)
@@ -211,7 +270,7 @@ def render_result(data):
     return df_to_show
 
 # ==========================================
-# 4. 网页 UI 界面与交互
+# 6. 网页 UI 界面与交互
 # ==========================================
 st.set_page_config(page_title="足球球员评分看板", layout="wide")
 st.title("⚽ 足球球员评分看板")
@@ -223,6 +282,7 @@ with st.expander("📖 点击查看：看板使用总说明", expanded=False):
     3. **分值与评级**：分值范围为0-11，评级范围为H-X，其中雷达图的白色基准线为 10 分，即10分已经是极高水平能够填满雷达图。若某维度达到 10.5 (S+) 或 11 (X)，图形将会**超出边缘**，这是为了直观表现某些球员能力极其突出故意设置的，应谨慎设置10.5 (S+) 和 11 (X)分值及评级，其中X评级建议只选1-2人代表该维度足球历史球员的最高水平。
     4. **总分权重机制**：左侧可设置维度权重，球员的“综合总评”将基于权重加权计算。以此区分某些维度的重要性。
     5. **雷达图**：如果您发现维度文字有重叠，可以用鼠标旋转雷达图以解决重叠现象；保存雷达图的方式是将鼠标移到雷达图右上角的**相机图标**，点击即可直接保存高清图。
+    6. **云端记录**：数据已接入云端数据库进行**匿名隔离**。只要您不清理浏览器缓存，历史记录会永久保存。
     """)
 
 with st.sidebar:
@@ -230,7 +290,7 @@ with st.sidebar:
     
     if st.button("🔄 一键重置打分", use_container_width=True):
         for key in list(st.session_state.keys()):
-            if key not in ["history_data", "ability_text"]: # 重置时不清空维度和历史记录
+            if key not in ["history_data", "ability_text", "db_loaded", "sb_session"]:
                 del st.session_state[key]
         st.rerun()
 
@@ -291,22 +351,18 @@ with st.sidebar:
         | < 1.0 | **H** | 极差 |
         """)
         
-    # 【更新】历史记录管理区
     with st.expander("📁 历史记录管理", expanded=True):
         if not st.session_state.history_data:
             st.info("暂无历史记录。")
         else:
-            # 清空按钮
             if st.button("🗑️ 清空所有历史记录", use_container_width=True):
-                st.session_state.history_data = []
-                save_history([])
-                st.session_state.has_generated = False
-                st.session_state.view_record = None
-                st.rerun()
+                if clear_all_history_from_db():
+                    st.session_state.history_data = []
+                    st.session_state.has_generated = False
+                    st.session_state.view_record = None
+                    st.rerun()
                 
-            # 列出记录并添加删除按钮
             for idx, record in enumerate(reversed(st.session_state.history_data)):
-                # 用倒序索引找到原数据中的真实位置
                 real_idx = len(st.session_state.history_data) - 1 - idx
                 col_load, col_del = st.columns([5, 1])
                 
@@ -317,13 +373,12 @@ with st.sidebar:
                         st.rerun()
                 with col_del:
                     if st.button("❌", key=f"del_{idx}", help="删除此记录"):
-                        st.session_state.history_data.pop(real_idx)
-                        save_history(st.session_state.history_data)
-                        # 如果当前正在查看的就是被删掉的，清空视图
-                        if st.session_state.get("view_record") == record:
-                            st.session_state.has_generated = False
-                            st.session_state.view_record = None
-                        st.rerun()
+                        if delete_history_from_db(record["id"]):
+                            st.session_state.history_data.pop(real_idx)
+                            if st.session_state.get("view_record") == record:
+                                st.session_state.has_generated = False
+                                st.session_state.view_record = None
+                            st.rerun()
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -350,7 +405,6 @@ with st.form("rating_form"):
 
     submitted = st.form_submit_button("生成雷达图与评级", type="primary", width="stretch")
 
-# 处理表单提交
 if submitted:
     score_list = [scores[dim] for dim in current_abilities]
     rank_list = [score_to_rank(s) for s in score_list]
@@ -386,7 +440,6 @@ if submitted:
     st.session_state.view_record = None
     st.rerun()
 
-# 渲染展示区
 if st.session_state.get("has_generated", False):
     st.markdown("---")
     
@@ -398,13 +451,10 @@ if st.session_state.get("has_generated", False):
         data_to_show = st.session_state.current_data
         df_display = render_result(data_to_show)
         
-        # 保存按钮
         col_a, col_b = st.columns([1, 4])
         with col_a:
             if st.button("💾 保存当前球员", type="primary"):
-                # 判断是否重名覆盖
                 record_to_save = {
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "player_name": data_to_show["player_name"],
                     "abilities": data_to_show["abilities"],
                     "rank_list": data_to_show["rank_list"],
@@ -417,15 +467,9 @@ if st.session_state.get("has_generated", False):
                     "df_display": data_to_show["df_display"].to_dict(orient="records")
                 }
                 
-                # 如果历史记录里已经有这个名字，先删掉旧的（实现覆盖）
-                st.session_state.history_data = [
-                    r for r in st.session_state.history_data 
-                    if r['player_name'] != record_to_save['player_name']
-                ]
-                
-                st.session_state.history_data.append(record_to_save)
-                save_history(st.session_state.history_data)
-                st.success("✅ 已保存到历史记录！(同名球员将自动覆盖)")
+                if save_history_to_db(record_to_save):
+                    st.session_state.history_data = load_history_from_db()
+                    st.success("✅ 已保存到云端数据库！")
     
     st.markdown("### 📥 导出数据表")
     csv_bytes = df_display.to_csv(index=False).encode('utf-8-sig')
