@@ -1,5 +1,5 @@
 # ==========================================
-# 足球球员评分看板 (Plotly+Supabase云端版)
+# 足球球员评分看板 (Plotly + Supabase云端)
 # ==========================================
 import streamlit as st
 import numpy as np
@@ -53,7 +53,6 @@ supabase = init_supabase()
 # 检查并执行匿名登录
 if "sb_session" not in st.session_state:
     try:
-        # 尝试获取当前 session，如果没有，则进行匿名登录
         res = supabase.auth.sign_in_anonymously()
         st.session_state.sb_session = res.session
     except Exception as e:
@@ -277,12 +276,11 @@ st.title("⚽ 足球球员评分看板")
 
 with st.expander("📖 点击查看：看板使用总说明", expanded=False):
     st.markdown("""
-    1. 这是一个**评价非门将足球运动员**的看板。为使防守球员在某些维度分值过低，进而导致能力衡量不够直观，作者对部分进攻与防守维度做了整合，例如盘带过人/盯防。强烈建议将您认为可以重合的进攻与防守维度重合，这样可以达到不低估防守球员能力，且防守球员画出的雷达图也会美观一些。
+    1. 这是一个**评价非门将足球运动员**的看板。为使防守球员在某些维度分值过低，进而导致能力衡量不够直观，作者对部分进攻与防守维度做了整合，例如盘带过人/盯防。
     2. 评级的说明详见左侧边栏的 **“评级说明对照表”**。
-    3. **分值与评级**：分值范围为0-11，评级范围为H-X，其中雷达图的白色基准线为 10 分，即10分已经是极高水平能够填满雷达图。若某维度达到 10.5 (S+) 或 11 (X)，图形将会**超出边缘**，这是为了直观表现某些球员能力极其突出故意设置的，应谨慎设置10.5 (S+) 和 11 (X)分值及评级，其中X评级建议只选1-2人代表该维度足球历史球员的最高水平。
-    4. **总分权重机制**：左侧可设置维度权重，球员的“综合总评”将基于权重加权计算。以此区分某些维度的重要性。
-    5. **雷达图**：如果您发现维度文字有重叠，可以用鼠标旋转雷达图以解决重叠现象；保存雷达图的方式是将鼠标移到雷达图右上角的**相机图标**，点击即可直接保存高清图。
-    6. **云端记录**：数据已接入云端数据库进行**匿名隔离**。只要您不清理浏览器缓存，历史记录会永久保存。
+    3. **分值与评级**：分值范围为0-11，评级范围为H-X，其中雷达图的白色基准线为 10 分，若某维度达到 10.5 (S+) 或 11 (X)，图形将会**超出边缘**。
+    4. **总分权重机制**：左侧可设置维度权重，球员的“综合总评”将基于权重加权计算。
+    5. **云端记录**：数据已接入云端数据库并开启**匿名隔离**。只要您不清理浏览器缓存，历史记录会永久保存，且不同用户的记录互相独立。
     """)
 
 with st.sidebar:
@@ -443,6 +441,11 @@ if submitted:
 if st.session_state.get("has_generated", False):
     st.markdown("---")
     
+    # 【修改点】优先显示保存成功的提示，并只显示一次
+    if "save_msg" in st.session_state:
+        st.success(st.session_state.save_msg)
+        del st.session_state.save_msg
+
     if st.session_state.get("view_record"):
         data_to_show = st.session_state.view_record
         df_display = render_result(data_to_show)
@@ -469,7 +472,8 @@ if st.session_state.get("has_generated", False):
                 
                 if save_history_to_db(record_to_save):
                     st.session_state.history_data = load_history_from_db()
-                    st.success("✅ 已保存到云端数据库！")
+                    st.session_state.save_msg = "✅ 已保存到云端数据库！"
+                    st.rerun() # 强制页面重跑，瞬间刷新左侧列表
     
     st.markdown("### 📥 导出数据表")
     csv_bytes = df_display.to_csv(index=False).encode('utf-8-sig')
