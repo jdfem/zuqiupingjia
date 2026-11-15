@@ -1,5 +1,5 @@
 # ==========================================
-# 足球球员评分看板 (Plotly 智能排版版)
+# 足球球员评分看板 (Plotly 大类打乱排版版)
 # ==========================================
 import streamlit as st
 import numpy as np
@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 from supabase import create_client, Client
+import random
 
 # ==========================================
 # 1. 核心逻辑：评级函数
@@ -59,19 +60,26 @@ if "sb_session" not in st.session_state:
         st.stop()
 
 # ==========================================
-# 3. 默认维度 (49项)
+# 3. 默认维度 (大类分组，每次加载时随机打乱大类顺序)
 # ==========================================
-DEFAULT_ABILITIES = [
-    "短传衔接", "长传转移", "直塞", "传中", "弧线球", "外脚背", "高压出球",
-    "第一脚触球", "触球精度", "控球能力", "护球", "逆足均衡度",
-    "出球视野与创造力", "瞬间反应", "空间感知与预判", "比赛阅读能力",
-    "常规射门", "不停球射门", "挑射", "远射", "凌空触球", "射门力量", "点球", "任意球",
-    "头球攻门", "解围",
-    "盘带过人", "推进突破", "变向灵活性", "跑位", "无球进攻嗅觉", "反越位/造越位意识",
-    "一对一盯防", "抢断", "铲球", "线路封堵", "内收补位意识", "防守选位",
-    "绝对速度", "爆发速度", "加速摆脱", "回追防守", "弹跳与制空", "主动对抗", "被动对抗", "体能耐力",
-    "抵抗伤病", "大场面属性", "赛场情绪"
+ABILITY_GROUPS = [
+    ["短传衔接", "长传转移", "直塞", "传中", "弧线球", "外脚背", "高压出球"],
+    ["第一脚触球", "触球精度", "控球能力", "护球", "逆足均衡度"],
+    ["出球视野与创造力", "瞬间反应", "空间感知与预判", "比赛阅读能力"],
+    ["常规射门", "不停球射门", "挑射", "远射", "凌空触球", "射门力量", "点球", "任意球"],
+    ["头球攻门", "解围"],
+    ["盘带过人", "推进突破", "变向灵活性", "跑位", "无球进攻嗅觉", "反越位/造越位意识"],
+    ["一对一盯防", "抢断", "铲球", "线路封堵", "内收补位意识", "防守选位"],
+    ["绝对速度", "爆发速度", "加速摆脱", "回追防守", "弹跳与制空", "主动对抗", "被动对抗", "体能耐力"],
+    ["抵抗伤病", "大场面属性", "赛场情绪"]
 ]
+
+def get_randomized_abilities():
+    """将大类顺序随机打乱，但大类内部维度保持相邻"""
+    groups_copy = ABILITY_GROUPS.copy()
+    random.shuffle(groups_copy)
+    flat_list = [item for group in groups_copy for item in group]
+    return "\n".join(flat_list)
 
 # ==========================================
 # 4. 各位置权重预设库
@@ -248,7 +256,7 @@ ABILITY_DESC_MD = """
 
 # 初始化状态
 if 'ability_text' not in st.session_state:
-    st.session_state.ability_text = "\n".join(DEFAULT_ABILITIES)
+    st.session_state.ability_text = get_randomized_abilities() # 首次加载时打乱大类
 if "has_generated" not in st.session_state:
     st.session_state.has_generated = False
 if "player_name_input" not in st.session_state:
@@ -315,34 +323,10 @@ if "db_loaded" not in st.session_state:
     st.session_state.db_loaded = True
 
 # ==========================================
-# 6. 绘图与渲染 (超强抗遮挡排序算法)
+# 6. 绘图与渲染 (干净的渲染，无需打乱)
 # ==========================================
 def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_score_sum, weighted_max_sum, weighted_avg_score, fill_color="#87CEEB", edge_color="#000000"):
     
-    # 【核心修改】长短交错排序算法：防止长名称扎堆
-    # 1. 将维度、分数、评级打包
-    combined = list(zip(abilities, score_list, rank_list))
-    # 2. 根据字符长度从长到短排序
-    combined.sort(key=lambda x: len(x[0]), reverse=True)
-    # 3. 均分为两半（长名称列表，短名称列表）
-    half = len(combined) // 2
-    long_names = combined[:half]
-    short_names = combined[half:]
-    
-    # 4. 长短交替合并（长1, 短1, 长2, 短2...）
-    sorted_combined = []
-    for i in range(len(short_names)):
-        sorted_combined.append(long_names[i])
-        sorted_combined.append(short_names[i])
-    if len(long_names) > len(short_names):
-        sorted_combined.append(long_names[-1])
-        
-    # 5. 解包回三个独立列表
-    abilities_sorted, score_list_sorted, rank_list_sorted = zip(*sorted_combined)
-    abilities = list(abilities_sorted)
-    score_list = list(score_list_sorted)
-    rank_list = list(rank_list_sorted)
-
     n = len(abilities)
     angles = np.linspace(0, 360, n, endpoint=False).tolist()
     r_values = score_list + [score_list[0]]
@@ -410,7 +394,6 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
         line=dict(color='rgba(255, 255, 255, 0.8)', width=1.2), hoverinfo='none', showlegend=False
     ))
 
-    # 强行放大字号（因为交错排布了，所以即使放大也不会严重重叠）
     dynamic_font_size = 13
 
     title_text = (
@@ -440,8 +423,8 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
             x=0.02, y=0.98, xanchor="left", yanchor="top"
         ),
         showlegend=False, 
-        margin=dict(l=220, r=220, t=100, b=100), # 边缘留足空间
-        height=1100, paper_bgcolor="white"       # 大画布
+        margin=dict(l=220, r=220, t=100, b=100), 
+        height=1100, paper_bgcolor="white"
     )
     return fig
 
@@ -490,6 +473,7 @@ with st.expander("📖 点击查看：看板使用总说明", expanded=False):
     3. **分值与评级**：分值范围为0-11，评级范围为H-X，其中雷达图的白色基准线为 10 分，若某维度达到 10.5 (S+) 或 11 (X)，图形将会**超出边缘**。
     4. **位置权重预设**：左侧边栏新增了一键载入不同位置权重预设的功能，可大幅节省您的调参时间。
     5. **云端记录**：数据已接入云端数据库并开启**匿名隔离**。只要您不清理浏览器缓存，历史记录会永久保存，且不同用户的记录互相独立。
+    6. **维度排版**：为了最大程度避免外围长文字重叠，系统每次重置时会**随机打乱9个大类的顺序**，但每个大类内部的维度依然挨在一起。
     """)
 
 with st.sidebar:
@@ -497,20 +481,22 @@ with st.sidebar:
     
     if st.button("🔄 一键重置打分", use_container_width=True):
         for key in list(st.session_state.keys()):
-            if key not in ["history_data", "ability_text", "db_loaded", "sb_session", "weight_editor_version"]:
+            if key not in ["history_data", "db_loaded", "sb_session", "weight_editor_version"]:
                 del st.session_state[key]
+        # 重置时重新打乱大类顺序
+        st.session_state.ability_text = get_randomized_abilities()
         st.session_state.selected_pos_name = None
         st.rerun()
 
     st.markdown("---")
     
     with st.expander("1. 管理评价维度", expanded=False):
-        new_ability_text = st.text_area("维度列表 (一行一个)", value=st.session_state.get('ability_text', "\n".join(DEFAULT_ABILITIES)), height=250)
+        new_ability_text = st.text_area("维度列表 (一行一个)", value=st.session_state.get('ability_text', get_randomized_abilities()), height=250)
         if new_ability_text != st.session_state.get('ability_text', ""):
             st.session_state.ability_text = new_ability_text
             st.rerun()
             
-    current_abilities = [line.strip() for line in st.session_state.get('ability_text', "\n".join(DEFAULT_ABILITIES)).split('\n') if line.strip()]
+    current_abilities = [line.strip() for line in st.session_state.get('ability_text', get_randomized_abilities()).split('\n') if line.strip()]
     
     if len(current_abilities) < 3:
         st.error("⚠️ 评价维度不能少于 3 项！")
