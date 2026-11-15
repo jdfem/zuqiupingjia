@@ -487,9 +487,9 @@ with st.sidebar:
         # 位置预设按钮区
         st.caption("点击下方位置，一键载入标准权重：")
         pos_names = list(POSITION_PRESETS.keys())
-        col_btns = st.columns(4)
+        col_btns = st.columns(2) # 【修改点】改为一行两个按钮
         for i, pos in enumerate(pos_names):
-            with col_btns[i % 4]:
+            with col_btns[i % 2]:
                 if st.button(pos, key=f"btn_{pos}", use_container_width=True):
                     st.session_state.selected_pos_name = pos
                     st.session_state.weight_editor_version += 1
