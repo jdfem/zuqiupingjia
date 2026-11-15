@@ -1,5 +1,5 @@
 # ==========================================
-# 足球球员评分看板 (Plotly + Supabase云端 - 49维+位置权重版)
+# 足球球员评分看板 (Plotly 智能排版版)
 # ==========================================
 import streamlit as st
 import numpy as np
@@ -59,7 +59,7 @@ if "sb_session" not in st.session_state:
         st.stop()
 
 # ==========================================
-# 3. 默认维度 & 缩写字典
+# 3. 默认维度 (49项)
 # ==========================================
 DEFAULT_ABILITIES = [
     "短传衔接", "长传转移", "直塞", "传中", "弧线球", "外脚背", "高压出球",
@@ -72,17 +72,6 @@ DEFAULT_ABILITIES = [
     "绝对速度", "爆发速度", "加速摆脱", "回追防守", "弹跳与制空", "主动对抗", "被动对抗", "体能耐力",
     "抵抗伤病", "大场面属性", "赛场情绪"
 ]
-
-# 维度缩写映射（让雷达图更干净清晰）
-ABBR_MAP = {
-    "短传衔接": "短传", "长传转移": "长传", "出球视野与创造力": "视野与创造力",
-    "第一脚触球": "一脚触球", "触球精度": "触球精度", "控球能力": "控球",
-    "逆足均衡度": "逆足", "空间感知与预判": "空间预判", "比赛阅读能力": "比赛阅读",
-    "凌空触球": "凌空处理", "变向灵活性": "变向灵活", "无球进攻嗅觉": "无球嗅觉",
-    "反越位/造越位意识": "反越位意识", "一对一盯防": "一对一盯防",
-    "内收补位意识": "内收补位", "弹跳与制空": "弹跳与制空",
-    "大场面属性": "大场面", "抵抗伤病": "抵抗伤病"
-}
 
 # ==========================================
 # 4. 各位置权重预设库
@@ -326,9 +315,34 @@ if "db_loaded" not in st.session_state:
     st.session_state.db_loaded = True
 
 # ==========================================
-# 6. 绘图与渲染 (引入缩写与加权总分)
+# 6. 绘图与渲染 (超强抗遮挡排序算法)
 # ==========================================
 def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_score_sum, weighted_max_sum, weighted_avg_score, fill_color="#87CEEB", edge_color="#000000"):
+    
+    # 【核心修改】长短交错排序算法：防止长名称扎堆
+    # 1. 将维度、分数、评级打包
+    combined = list(zip(abilities, score_list, rank_list))
+    # 2. 根据字符长度从长到短排序
+    combined.sort(key=lambda x: len(x[0]), reverse=True)
+    # 3. 均分为两半（长名称列表，短名称列表）
+    half = len(combined) // 2
+    long_names = combined[:half]
+    short_names = combined[half:]
+    
+    # 4. 长短交替合并（长1, 短1, 长2, 短2...）
+    sorted_combined = []
+    for i in range(len(short_names)):
+        sorted_combined.append(long_names[i])
+        sorted_combined.append(short_names[i])
+    if len(long_names) > len(short_names):
+        sorted_combined.append(long_names[-1])
+        
+    # 5. 解包回三个独立列表
+    abilities_sorted, score_list_sorted, rank_list_sorted = zip(*sorted_combined)
+    abilities = list(abilities_sorted)
+    score_list = list(score_list_sorted)
+    rank_list = list(rank_list_sorted)
+
     n = len(abilities)
     angles = np.linspace(0, 360, n, endpoint=False).tolist()
     r_values = score_list + [score_list[0]]
@@ -347,8 +361,7 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
     tick_texts = []
     for ab, rk in zip(abilities, rank_list):
         color = fixed_color_map.get(rk, "#333333")
-        short_ab = ABBR_MAP.get(ab, ab) # 使用缩写
-        text = f"{short_ab}<br><span style='color:{color}; font-weight:bold;'>({rk})</span>"
+        text = f"{ab}<br><span style='color:{color}; font-weight:bold;'>({rk})</span>"
         tick_texts.append(text)
 
     hover_texts = [f"<b>{ab}</b><br>分值: {sc:.1f}<br>评级: {rk}" for ab, sc, rk in zip(abilities, score_list, rank_list)]
@@ -397,10 +410,9 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
         line=dict(color='rgba(255, 255, 255, 0.8)', width=1.2), hoverinfo='none', showlegend=False
     ))
 
-    # 因为使用了缩写，所以可以稍微调大一点点字号
-    dynamic_font_size = max(9, min(12, 120 // n))
+    # 强行放大字号（因为交错排布了，所以即使放大也不会严重重叠）
+    dynamic_font_size = 13
 
-    # 左上角标题显示：名字 + 加权总分 + 评级
     title_text = (
         f"<b>{player_name}</b><br>"
         f"加权总分: {weighted_score_sum:.1f} / {weighted_max_sum:.1f}<br>"
@@ -427,8 +439,9 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
             font=dict(size=18, family="SimHei", color="#333333"),
             x=0.02, y=0.98, xanchor="left", yanchor="top"
         ),
-        showlegend=False, margin=dict(l=120, r=120, t=90, b=80), 
-        height=850, paper_bgcolor="white"
+        showlegend=False, 
+        margin=dict(l=220, r=220, t=100, b=100), # 边缘留足空间
+        height=1100, paper_bgcolor="white"       # 大画布
     )
     return fig
 
@@ -447,7 +460,6 @@ def render_result(data):
     
     st.plotly_chart(fig, use_container_width=True, config=chart_config)
     
-    # 下方的文字说明（保留，作为详细数据的展示）
     st.markdown(f"""
     <div style='text-align: center; font-size: 18px; margin-top: -20px; margin-bottom: 20px;'>
         <span style='color: #666;'>加权综合总分：</span><b>{data['weighted_score_sum']:.1f}</b> <span style='color: #999;'>/ {data['weighted_max_sum']:.1f}</span>
