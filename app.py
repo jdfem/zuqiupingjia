@@ -1,5 +1,5 @@
 # ==========================================
-# 足球球员评分看板 (Plotly + Supabase云端)
+# 足球球员评分看板 (Plotly + Supabase云端 - 49维+位置权重版)
 # ==========================================
 import streamlit as st
 import numpy as np
@@ -59,7 +59,7 @@ if "sb_session" not in st.session_state:
         st.stop()
 
 # ==========================================
-# 3. 默认维度 (49项)
+# 3. 默认维度 & 缩写字典
 # ==========================================
 DEFAULT_ABILITIES = [
     "短传衔接", "长传转移", "直塞", "传中", "弧线球", "外脚背", "高压出球",
@@ -72,6 +72,17 @@ DEFAULT_ABILITIES = [
     "绝对速度", "爆发速度", "加速摆脱", "回追防守", "弹跳与制空", "主动对抗", "被动对抗", "体能耐力",
     "抵抗伤病", "大场面属性", "赛场情绪"
 ]
+
+# 维度缩写映射（让雷达图更干净清晰）
+ABBR_MAP = {
+    "短传衔接": "短传", "长传转移": "长传", "出球视野与创造力": "视野与创造力",
+    "第一脚触球": "一脚触球", "触球精度": "触球精度", "控球能力": "控球",
+    "逆足均衡度": "逆足", "空间感知与预判": "空间预判", "比赛阅读能力": "比赛阅读",
+    "凌空触球": "凌空处理", "变向灵活性": "变向灵活", "无球进攻嗅觉": "无球嗅觉",
+    "反越位/造越位意识": "反越位意识", "一对一盯防": "一对一盯防",
+    "内收补位意识": "内收补位", "弹跳与制空": "弹跳与制空",
+    "大场面属性": "大场面", "抵抗伤病": "抵抗伤病"
+}
 
 # ==========================================
 # 4. 各位置权重预设库
@@ -315,10 +326,9 @@ if "db_loaded" not in st.session_state:
     st.session_state.db_loaded = True
 
 # ==========================================
-# 6. 绘图与渲染
+# 6. 绘图与渲染 (引入缩写与加权总分)
 # ==========================================
-def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_color="#87CEEB", edge_color="#000000"):
-    total_score = sum(score_list) 
+def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_score_sum, weighted_max_sum, weighted_avg_score, fill_color="#87CEEB", edge_color="#000000"):
     n = len(abilities)
     angles = np.linspace(0, 360, n, endpoint=False).tolist()
     r_values = score_list + [score_list[0]]
@@ -337,7 +347,8 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
     tick_texts = []
     for ab, rk in zip(abilities, rank_list):
         color = fixed_color_map.get(rk, "#333333")
-        text = f"{ab}<br><span style='color:{color}; font-weight:bold;'>({rk})</span>"
+        short_ab = ABBR_MAP.get(ab, ab) # 使用缩写
+        text = f"{short_ab}<br><span style='color:{color}; font-weight:bold;'>({rk})</span>"
         tick_texts.append(text)
 
     hover_texts = [f"<b>{ab}</b><br>分值: {sc:.1f}<br>评级: {rk}" for ab, sc, rk in zip(abilities, score_list, rank_list)]
@@ -386,7 +397,15 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
         line=dict(color='rgba(255, 255, 255, 0.8)', width=1.2), hoverinfo='none', showlegend=False
     ))
 
-    dynamic_font_size = max(7, min(11, 110 // n))
+    # 因为使用了缩写，所以可以稍微调大一点点字号
+    dynamic_font_size = max(9, min(12, 120 // n))
+
+    # 左上角标题显示：名字 + 加权总分 + 评级
+    title_text = (
+        f"<b>{player_name}</b><br>"
+        f"加权总分: {weighted_score_sum:.1f} / {weighted_max_sum:.1f}<br>"
+        f"综合评级: {score_to_rank(weighted_avg_score)}"
+    )
 
     fig.update_layout(
         polar=dict(
@@ -404,11 +423,11 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
             bgcolor="white"
         ),
         title=dict(
-            text=f"<b>{player_name}</b><br>总分: {total_score:.1f}",
-            font=dict(size=22, family="SimHei", color="#333333"),
+            text=title_text,
+            font=dict(size=18, family="SimHei", color="#333333"),
             x=0.02, y=0.98, xanchor="left", yanchor="top"
         ),
-        showlegend=False, margin=dict(l=120, r=120, t=80, b=80), 
+        showlegend=False, margin=dict(l=120, r=120, t=90, b=80), 
         height=850, paper_bgcolor="white"
     )
     return fig
@@ -416,6 +435,7 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, fill_colo
 def render_result(data):
     fig = player_radar_plotly(
         data["player_name"], data["abilities"], data["rank_list"], data["score_list"], 
+        data["weighted_score_sum"], data["weighted_max_sum"], data["weighted_avg_score"],
         data["fill_color"], data["edge_color"]
     )
     
@@ -427,6 +447,7 @@ def render_result(data):
     
     st.plotly_chart(fig, use_container_width=True, config=chart_config)
     
+    # 下方的文字说明（保留，作为详细数据的展示）
     st.markdown(f"""
     <div style='text-align: center; font-size: 18px; margin-top: -20px; margin-bottom: 20px;'>
         <span style='color: #666;'>加权综合总分：</span><b>{data['weighted_score_sum']:.1f}</b> <span style='color: #999;'>/ {data['weighted_max_sum']:.1f}</span>
@@ -484,10 +505,9 @@ with st.sidebar:
         st.stop()
     
     with st.expander("2. 维度权重设置", expanded=True):
-        # 位置预设按钮区
         st.caption("点击下方位置，一键载入标准权重：")
         pos_names = list(POSITION_PRESETS.keys())
-        col_btns = st.columns(2) # 【修改点】改为一行两个按钮
+        col_btns = st.columns(2) 
         for i, pos in enumerate(pos_names):
             with col_btns[i % 2]:
                 if st.button(pos, key=f"btn_{pos}", use_container_width=True):
@@ -495,7 +515,6 @@ with st.sidebar:
                     st.session_state.weight_editor_version += 1
                     st.rerun()
                     
-        # 构建权重 DataFrame
         default_weights = [1.0] * len(current_abilities)
         if st.session_state.selected_pos_name:
             preset = POSITION_PRESETS[st.session_state.selected_pos_name]
@@ -503,7 +522,6 @@ with st.sidebar:
                 default_weights[i] = preset.get(dim, 1.0)
 
         df_weights = pd.DataFrame({"维度": current_abilities, "权重": default_weights})
-        # 动态 Key 确保预设能覆盖手动修改
         editor_key_w = f"weight_editor_{hash(tuple(current_abilities))}_v{st.session_state.weight_editor_version}"
         
         edited_weights = st.data_editor(
