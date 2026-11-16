@@ -1,5 +1,5 @@
 # ==========================================
-# 足球球员评分看板
+# 足球球员评分看板 (Plotly 邮箱登录+系数加成版)
 # ==========================================
 import streamlit as st
 import numpy as np
@@ -51,7 +51,6 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# 检查登录状态
 if "sb_session" not in st.session_state:
     st.markdown("## 🔐 欢迎来到足球球员评分看板")
     st.info("💡 **为了让您的历史记录永久保存且不丢失，请先登录或注册。** (随便填一个常用的邮箱和密码即可)")
@@ -77,24 +76,30 @@ if "sb_session" not in st.session_state:
                 st.success("注册成功！请点击左侧的‘登录’按钮直接登录。")
             except Exception as e:
                 st.error(f"注册失败: {e}")
-    
-    # 未登录时停止渲染后续看板内容
     st.stop()
 
 # ==========================================
-# 3. 默认维度 (按照 1-49 的顺序固定排列)
+# 3. 维度与大类定义
 # ==========================================
-DEFAULT_ABILITIES = [
-    "短传衔接", "长传转移", "直塞", "传中", "弧线球", "外脚背", "高压出球",
-    "第一脚触球", "触球精度", "控球能力", "护球", "逆足均衡度",
-    "出球视野/创造力", "瞬间反应", "空间感知与预判", "比赛阅读能力",
-    "常规射门", "不停球射门", "挑射", "远射", "凌空触球", "射门力量", "点球", "任意球",
-    "头球攻门", "解围",
-    "盘带过人", "推进突破", "变向灵活性", "跑位", "无球进攻嗅觉", "越位意识",
-    "一对一盯防", "抢断", "铲球", "线路封堵", "内收补位意识", "防守选位",
-    "绝对速度", "爆发速度", "加速摆脱", "回追防守", "弹跳/制空", "主动对抗", "被动对抗", "体能耐力",
-    "抵抗伤病", "大场面属性", "赛场情绪"
+ABILITY_GROUPS = [
+    ["短传衔接", "长传转移", "直塞", "传中", "弧线球", "外脚背", "高压出球"],
+    ["第一脚触球", "触球精度", "控球能力", "护球", "逆足均衡度"],
+    ["出球视野/创造力", "瞬间反应", "空间感知与预判", "比赛阅读能力"],
+    ["常规射门", "不停球射门", "挑射", "远射", "凌空触球", "射门力量", "点球", "任意球"],
+    ["头球攻门", "解围"],
+    ["盘带过人", "推进突破", "变向灵活性", "跑位", "无球进攻嗅觉", "越位意识"],
+    ["一对一盯防", "抢断", "铲球", "线路封堵", "内收补位意识", "防守选位"],
+    ["绝对速度", "爆发速度", "加速摆脱", "回追防守", "弹跳/制空", "主动对抗", "被动对抗", "体能耐力"],
+    ["抵抗伤病", "大场面属性", "赛场情绪"]
 ]
+
+DEFAULT_ABILITIES = [item for group in ABILITY_GROUPS for item in group]
+
+# 维度 -> 大类的映射
+DIM_TO_GROUP = {}
+for group in ABILITY_GROUPS:
+    for dim in group:
+        DIM_TO_GROUP[dim] = tuple(group)
 
 # ==========================================
 # 4. 各位置权重预设库
@@ -411,9 +416,10 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
 
     dynamic_font_size = 13
 
+    # 修改左上角文本，去掉上限
     title_text = (
         f"<b>{player_name}</b><br>"
-        f"加权总分: {weighted_score_sum:.1f} / {weighted_max_sum:.1f}<br>"
+        f"总分: {weighted_score_sum:.1f}<br>"
         f"综合评级: {score_to_rank(weighted_avg_score)}"
     )
 
@@ -458,9 +464,10 @@ def render_result(data):
     
     st.plotly_chart(fig, use_container_width=True, config=chart_config)
     
+    # 这里的展示保留原始的总分上限展示，因为用户说“总分上限原先就有标在一个地方，那里不用删”
     st.markdown(f"""
     <div style='text-align: center; font-size: 18px; margin-top: -20px; margin-bottom: 20px;'>
-        <span style='color: #666;'>加权综合总分：</span><b>{data['weighted_score_sum']:.1f}</b> <span style='color: #999;'>/ {data['weighted_max_sum']:.1f}</span>
+        <span style='color: #666;'>总分：</span><b>{data['weighted_score_sum']:.1f}</b> <span style='color: #999;'>/ {data['weighted_max_sum']:.1f}</span>
         &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;
         <span style='color: #666;'>加权平均分：</span><b>{data['weighted_avg_score']:.2f}</b> <span style='color: #999;'>/ 11.0</span>
         &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;
@@ -492,7 +499,6 @@ with st.expander("📖 点击查看：看板使用总说明", expanded=False):
     """)
 
 with st.sidebar:
-    # 显示当前登录的邮箱及退出按钮
     st.success(f"👤 已登录：\n{st.session_state.sb_session.user.email}")
     if st.button("🚪 退出登录", use_container_width=True):
         supabase.auth.sign_out()
@@ -607,10 +613,8 @@ with st.sidebar:
                         st.session_state.view_record = record
                         st.session_state.has_generated = True
                         
-                        # 同步分数到滑块
                         for dim, sc in zip(record["abilities"], record["score_list"]):
                             st.session_state[f"slider_{dim}"] = float(sc)
-                        # 同步姓名和颜色
                         st.session_state.player_name_input = record["player_name"]
                         st.session_state.edge_color_pick = record.get("edge_color", "#000000")
                         st.session_state.fill_color_pick = record.get("fill_color", "#87CEEB")
@@ -633,12 +637,10 @@ with col2:
 with col3:
     fill_color = st.color_picker("雷达图填充颜色", key="fill_color_pick")
 
-# 【新增】快速填充面板
 with st.expander("🚀 快速批量填充分值", expanded=False):
     st.info(f"请粘贴或输入 **{len(current_abilities)}** 个数字（用逗号或空格隔开），系统将按当前维度的顺序依次填入。例如：`10.5, 11, 9.5, 7.0...`")
     bulk_text = st.text_area("在此粘贴分值列表：", height=68, key="bulk_score_input")
     if st.button("一键填充", type="secondary"):
-        # 使用正则提取所有数字
         nums = re.findall(r'\d+\.?\d*', bulk_text)
         if len(nums) == len(current_abilities):
             for dim, num in zip(current_abilities, nums):
@@ -648,7 +650,6 @@ with st.expander("🚀 快速批量填充分值", expanded=False):
         else:
             st.error(f"提取到了 {len(nums)} 个数字，但当前维度有 {len(current_abilities)} 个，请检查数量是否一致。")
 
-# 表单：能力打分
 with st.form("rating_form"):
     st.subheader("能力打分")
     scores = {}
@@ -673,9 +674,48 @@ if submitted:
     total_weight = sum(weight_dict.values())
     if total_weight == 0: total_weight = 1 
         
-    weighted_score_sum = sum(sc * weight_dict.get(dim, 1.0) for dim, sc in zip(current_abilities, score_list))
+    # 1. 基本分
+    base_score = sum(sc * weight_dict.get(dim, 1.0) for dim, sc in zip(current_abilities, score_list))
     weighted_max_sum = sum(11.0 * weight_dict.get(dim, 1.0) for dim in current_abilities)
-    weighted_avg_score = weighted_score_sum / total_weight
+    weighted_avg_score = base_score / total_weight
+    
+    # 2. 长板溢出奖励分
+    bonus_score = 0.0
+    for dim, sc in zip(current_abilities, score_list):
+        w = weight_dict.get(dim, 1.0)
+        if sc >= 10.5:
+            bonus_score += (sc - 10) * 1.6 * w
+            
+    # 3. 豁免分
+    exemption_score = 0.0
+    # 先统计每个大类中 S+ (>=10.5) 的数量
+    group_s_plus_count = {}
+    for group in ABILITY_GROUPS:
+        group_key = tuple(group)
+        count = 0
+        for dim in group:
+            if dim in current_abilities:
+                idx = current_abilities.index(dim)
+                if score_list[idx] >= 10.5:
+                    count += 1
+        group_s_plus_count[group_key] = count
+
+    for dim, sc in zip(current_abilities, score_list):
+        w = weight_dict.get(dim, 1.0)
+        # 找它属于哪个大类
+        belongs_to = None
+        for group in ABILITY_GROUPS:
+            if dim in group:
+                belongs_to = tuple(group)
+                break
+        
+        # 如果满足条件：有归属，权重<1.4，分值<7，且该大类有2个以上S+
+        if belongs_to and w < 1.4 and sc < 7:
+            if group_s_plus_count.get(belongs_to, 0) >= 2:
+                exemption_score += (10 - sc) * 0.5 * w
+
+    # 最终总分 = 基本分 + 奖励分 + 豁免分
+    final_total_score = base_score + bonus_score + exemption_score
     
     display_data = []
     for dim, score, rank in zip(current_abilities, score_list, rank_list):
@@ -690,7 +730,7 @@ if submitted:
         "score_list": score_list,
         "fill_color": fill_color,
         "edge_color": edge_color,
-        "weighted_score_sum": weighted_score_sum,
+        "weighted_score_sum": final_total_score,  # 这里存最终的总分
         "weighted_max_sum": weighted_max_sum,
         "weighted_avg_score": weighted_avg_score,
         "df_display": pd.DataFrame(display_data)
