@@ -1,5 +1,5 @@
 # ==========================================
-# 足球球员评分看板 (Plotly 大类打乱排版版)
+# 足球球员评分看板 
 # ==========================================
 import streamlit as st
 import numpy as np
@@ -38,7 +38,7 @@ def score_to_rank(score):
     else: return "H"
 
 # ==========================================
-# 2. Supabase 初始化与匿名登录
+# 2. Supabase 初始化与邮箱登录 (替代匿名登录)
 # ==========================================
 @st.cache_resource
 def init_supabase() -> Client:
@@ -51,13 +51,35 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
+# 检查登录状态
 if "sb_session" not in st.session_state:
-    try:
-        res = supabase.auth.sign_in_anonymously()
-        st.session_state.sb_session = res.session
-    except Exception as e:
-        st.error(f"匿名登录失败，请在 Supabase 后台开启 Anonymous Sign-ins。报错信息：{e}")
-        st.stop()
+    st.markdown("## 🔐 欢迎来到足球球员评分看板")
+    st.info("💡 **为了让您的历史记录永久保存且不丢失，请先登录或注册。** (随便填一个常用的邮箱和密码即可)")
+    
+    with st.form("auth_form"):
+        email = st.text_input("邮箱 (Email)")
+        password = st.text_input("密码 (Password)", type="password")
+        
+        col1, col2 = st.columns(2)
+        submit_login = col1.form_submit_button("登录", type="primary", use_container_width=True)
+        submit_register = col2.form_submit_button("注册", use_container_width=True)
+        
+        if submit_login:
+            try:
+                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                st.session_state.sb_session = res.session
+                st.rerun()
+            except Exception as e:
+                st.error(f"登录失败: {e}")
+        elif submit_register:
+            try:
+                res = supabase.auth.sign_up({"email": email, "password": password})
+                st.success("注册成功！请点击左侧的‘登录’按钮直接登录。（注：如提示需验证邮箱，请联系管理员）")
+            except Exception as e:
+                st.error(f"注册失败: {e}")
+    
+    # 未登录时停止渲染后续看板内容
+    st.stop()
 
 # ==========================================
 # 3. 默认维度 (大类分组，每次加载时随机打乱大类顺序)
@@ -256,7 +278,7 @@ ABILITY_DESC_MD = """
 
 # 初始化状态
 if 'ability_text' not in st.session_state:
-    st.session_state.ability_text = get_randomized_abilities() # 首次加载时打乱大类
+    st.session_state.ability_text = get_randomized_abilities()
 if "has_generated" not in st.session_state:
     st.session_state.has_generated = False
 if "player_name_input" not in st.session_state:
@@ -323,7 +345,7 @@ if "db_loaded" not in st.session_state:
     st.session_state.db_loaded = True
 
 # ==========================================
-# 6. 绘图与渲染 (干净的渲染，无需打乱)
+# 6. 绘图与渲染
 # ==========================================
 def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_score_sum, weighted_max_sum, weighted_avg_score, fill_color="#87CEEB", edge_color="#000000"):
     
@@ -472,18 +494,25 @@ with st.expander("📖 点击查看：看板使用总说明", expanded=False):
     2. 评级的说明详见左侧边栏的 **“评级说明对照表”**。
     3. **分值与评级**：分值范围为0-11，评级范围为H-X，其中雷达图的白色基准线为 10 分，若某维度达到 10.5 (S+) 或 11 (X)，图形将会**超出边缘**。
     4. **位置权重预设**：左侧边栏新增了一键载入不同位置权重预设的功能，可大幅节省您的调参时间。
-    5. **云端记录**：数据已接入云端数据库并开启**匿名隔离**。只要您不清理浏览器缓存，历史记录会永久保存，且不同用户的记录互相独立。
+    5. **云端记录**：数据已接入云端数据库并开启**账号隔离**。注册登录后，历史记录将永久保存且不同账号互相独立。
     6. **维度排版**：为了最大程度避免外围长文字重叠，系统每次重置时会**随机打乱9个大类的顺序**，但每个大类内部的维度依然挨在一起。
     """)
 
 with st.sidebar:
+    # 显示当前登录的邮箱及退出按钮
+    st.success(f"👤 已登录：\n{st.session_state.sb_session.user.email}")
+    if st.button("🚪 退出登录", use_container_width=True):
+        supabase.auth.sign_out()
+        del st.session_state.sb_session
+        st.rerun()
+    st.markdown("---")
+
     st.header("⚙️ 看板配置")
     
     if st.button("🔄 一键重置打分", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key not in ["history_data", "db_loaded", "sb_session", "weight_editor_version"]:
                 del st.session_state[key]
-        # 重置时重新打乱大类顺序
         st.session_state.ability_text = get_randomized_abilities()
         st.session_state.selected_pos_name = None
         st.rerun()
