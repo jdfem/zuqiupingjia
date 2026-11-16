@@ -73,7 +73,7 @@ if "sb_session" not in st.session_state:
         elif submit_register:
             try:
                 res = supabase.auth.sign_up({"email": email, "password": password})
-                st.success("注册成功！请点击左侧的‘登录’按钮直接登录。（注：如提示需验证邮箱，请联系管理员）")
+                st.success("注册成功！请点击左侧的‘登录’按钮直接登录。")
             except Exception as e:
                 st.error(f"注册失败: {e}")
     
@@ -189,7 +189,7 @@ POSITION_PRESETS = {
     }
 }
 
-# 维度详细说明文案 (去除了括号里的“天花板”等修饰，更新了名称)
+# 维度详细说明文案
 ABILITY_DESC_MD = """
 **一、传球类（1–7）**
 
@@ -605,6 +605,13 @@ with st.sidebar:
                     if st.button(f"👤 {record['player_name']}", key=f"load_{idx}", use_container_width=True):
                         st.session_state.view_record = record
                         st.session_state.has_generated = True
+                        
+                        # 【核心修复】把历史记录中的分数覆盖到滑块状态中
+                        for dim, sc in zip(record["abilities"], record["score_list"]):
+                            st.session_state[f"slider_{dim}"] = float(sc)
+                        # 同步更新姓名输入框
+                        st.session_state.player_name_input = record["player_name"]
+                        
                         st.rerun()
                 with col_del:
                     if st.button("❌", key=f"del_{idx}", help="删除此记录"):
