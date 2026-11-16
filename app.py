@@ -1,5 +1,5 @@
 # ==========================================
-# 足球球员评分看板 (Plotly 邮箱登录+固定顺序版)
+# 足球球员评分看板
 # ==========================================
 import streamlit as st
 import numpy as np
@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 from supabase import create_client, Client
+import re
 
 # ==========================================
 # 1. 核心逻辑：评级函数
@@ -606,11 +607,13 @@ with st.sidebar:
                         st.session_state.view_record = record
                         st.session_state.has_generated = True
                         
-                        # 【核心修复】把历史记录中的分数覆盖到滑块状态中
+                        # 同步分数到滑块
                         for dim, sc in zip(record["abilities"], record["score_list"]):
                             st.session_state[f"slider_{dim}"] = float(sc)
-                        # 同步更新姓名输入框
+                        # 同步姓名和颜色
                         st.session_state.player_name_input = record["player_name"]
+                        st.session_state.edge_color_pick = record.get("edge_color", "#000000")
+                        st.session_state.fill_color_pick = record.get("fill_color", "#87CEEB")
                         
                         st.rerun()
                 with col_del:
@@ -630,6 +633,22 @@ with col2:
 with col3:
     fill_color = st.color_picker("雷达图填充颜色", key="fill_color_pick")
 
+# 【新增】快速填充面板
+with st.expander("🚀 快速批量填充分值", expanded=False):
+    st.info(f"请粘贴或输入 **{len(current_abilities)}** 个数字（用逗号或空格隔开），系统将按当前维度的顺序依次填入。例如：`10.5, 11, 9.5, 7.0...`")
+    bulk_text = st.text_area("在此粘贴分值列表：", height=68, key="bulk_score_input")
+    if st.button("一键填充", type="secondary"):
+        # 使用正则提取所有数字
+        nums = re.findall(r'\d+\.?\d*', bulk_text)
+        if len(nums) == len(current_abilities):
+            for dim, num in zip(current_abilities, nums):
+                st.session_state[f"slider_{dim}"] = float(num)
+            st.success("填充成功！请检查下方滑块或点击生成。")
+            st.rerun()
+        else:
+            st.error(f"提取到了 {len(nums)} 个数字，但当前维度有 {len(current_abilities)} 个，请检查数量是否一致。")
+
+# 表单：能力打分
 with st.form("rating_form"):
     st.subheader("能力打分")
     scores = {}
