@@ -473,9 +473,13 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
                 type="buttons",
                 showactive=False,
                 direction="left",
-                x=0.98, xanchor="right",
-                y=0.15, yanchor="bottom",
-                pad={"r": 10, "t": 10},
+                x=1.0, xanchor="right",
+                y=0.02, yanchor="bottom",
+                pad={"r": 6, "t": 6},
+                bgcolor="rgba(255,255,255,0.85)",   # 可选：半透明白底
+                bordercolor="rgba(0,0,0,0.15)",
+                borderwidth=1,
+                font=dict(size=12, color="#666666"),
                 buttons=[dict(
                     label="▶ 播放",
                     method="animate",
