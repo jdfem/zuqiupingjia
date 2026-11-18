@@ -345,7 +345,7 @@ if "db_loaded" not in st.session_state:
 # ==========================================
 # 6. 绘图与渲染
 # ==========================================
-def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_score_sum, weighted_max_sum, weighted_avg_score, fill_color="#87CEEB", edge_color="#000000"):
+def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_score_sum, weighted_max_sum, weighted_avg_score, fill_color="#87CEEB", edge_color="#000000", animate=False):
     
     n = len(abilities)
     angles = np.linspace(0, 360, n, endpoint=False).tolist()
@@ -416,7 +416,6 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
 
     dynamic_font_size = 13
 
-    # 修改左上角文本，去掉上限
     title_text = (
         f"<b>{player_name}</b><br>"
         f"总分: {weighted_score_sum:.1f}<br>"
@@ -447,13 +446,56 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
         margin=dict(l=220, r=220, t=100, b=100), 
         height=1100, paper_bgcolor="white"
     )
+
+    # ====== 动画：从中心扩散到目标位置 ======
+    if animate:
+        n_frames = 24
+        frames = []
+        for i in range(n_frames + 1):
+            t = i / n_frames
+            # ease-out：先快后慢，扩散到位置时减速
+            factor = 1 - (1 - t) ** 2
+            cur_r = [v * factor for v in r_values]
+            frames.append(go.Frame(
+                data=[go.Scatterpolar(
+                    type="scatterpolar",
+                    r=cur_r,
+                    theta=theta_values,
+                    text=hover_texts
+                )],
+                traces=[5],          # 主数据 trace 的索引（前面有 5 个背景圆）
+                name=str(i)
+            ))
+        fig.frames = frames
+
+        fig.update_layout(
+            updatemenus=[dict(
+                type="buttons",
+                showactive=False,
+                direction="left",
+                x=0.98, xanchor="right",
+                y=0.15, yanchor="bottom",
+                pad={"r": 10, "t": 10},
+                buttons=[dict(
+                    label="▶ 播放",
+                    method="animate",
+                    args=[None, dict(
+                        frame=dict(duration=40, redraw=True),
+                        transition=dict(duration=0),
+                        fromcurrent=False,
+                        mode="immediate"
+                    )]
+                )]
+            )]
+        )
+
     return fig
 
-def render_result(data):
+def render_result(data, animate=False):
     fig = player_radar_plotly(
         data["player_name"], data["abilities"], data["rank_list"], data["score_list"], 
         data["weighted_score_sum"], data["weighted_max_sum"], data["weighted_avg_score"],
-        data["fill_color"], data["edge_color"]
+        data["fill_color"], data["edge_color"], animate=animate
     )
     
     chart_config = {
@@ -754,7 +796,7 @@ if st.session_state.get("has_generated", False):
         st.info(f"📂 正在查看历史记录：{data_to_show['player_name']} (保存于 {data_to_show['timestamp']})")
     else:
         data_to_show = st.session_state.current_data
-        df_display = render_result(data_to_show)
+        df_display = render_result(data_to_show, animate=True)
         
         col_a, col_b = st.columns([1, 4])
         with col_a:
