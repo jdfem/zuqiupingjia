@@ -484,7 +484,7 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
                     label="▶ 播放",
                     method="animate",
                     args=[None, dict(
-                        frame=dict(duration=20, redraw=True),
+                        frame=dict(duration=16, redraw=True),
                         transition=dict(duration=0),
                         fromcurrent=False,
                         mode="immediate"
