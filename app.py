@@ -449,7 +449,7 @@ def player_radar_plotly(player_name, abilities, rank_list, score_list, weighted_
 
     # ====== 动画：从中心扩散到目标位置 ======
     if animate:
-        n_frames = 48
+        n_frames = 36
         frames = []
         for i in range(n_frames + 1):
             t = i / n_frames
